@@ -17,26 +17,45 @@ def percent(value: float, show_sign: bool = False) -> str:
     return f"{value * 100:.2f}%"
 
 
-def build_report(positions_df: pd.DataFrame) -> str:
-    quote_date = positions_df["quote_date"].iloc[0]
-    quote_time = positions_df["quote_time"].iloc[0]
-
-    total_cost = positions_df["cost_amount"].sum()
-    total_value = positions_df["market_value"].sum()
-    total_pnl = total_value - total_cost
-    total_return = total_pnl / total_cost if total_cost else 0
-
+def build_report(
+    positions_df: pd.DataFrame,
+    summary: dict,
+) -> str:
     lines = [
-        f"日期：{quote_date} {quote_time}",
-        "",
-        f"持仓成本：{money(total_cost)}",
-        f"当前市值：{money(total_value)}",
-        f"累计盈亏：{money(total_pnl, show_sign=True)}",
-        f"累计收益率：{percent(total_return, show_sign=True)}",
-        "",
-        "持仓明细：",
+        f"日期：{summary['quote_date']} {summary['quote_time']}",
         "",
     ]
+
+    if summary["daily_pnl"] is None:
+        lines.extend(
+            [
+                "今日盈亏：暂无",
+                "今日收益率：暂无",
+                "说明：今天是第一条快照，明天开始可计算今日盈亏。",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"今日盈亏：{money(summary['daily_pnl'], show_sign=True)}",
+                f"今日收益率：{percent(summary['daily_return'], show_sign=True)}",
+                f"对比日期：{summary['previous_date']}",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            f"持仓成本：{money(summary['total_cost'])}",
+            f"当前市值：{money(summary['total_value'])}",
+            f"累计盈亏：{money(summary['total_pnl'], show_sign=True)}",
+            f"累计收益率：{percent(summary['total_return'], show_sign=True)}",
+            "",
+            "持仓明细：",
+            "",
+        ]
+    )
 
     sorted_df = positions_df.sort_values("pnl", ascending=False)
 

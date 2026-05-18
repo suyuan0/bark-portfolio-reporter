@@ -39,3 +39,42 @@ def calculate_positions(
     df["return_rate"] = df["pnl"] / df["cost_amount"]
 
     return df
+
+
+def calculate_summary(
+    positions_df: pd.DataFrame,
+    previous_snapshot: dict | None = None,
+) -> dict:
+    quote_date = positions_df["quote_date"].iloc[0]
+    quote_time = positions_df["quote_time"].iloc[0]
+
+    total_cost = positions_df["cost_amount"].sum()
+    total_value = positions_df["market_value"].sum()
+    total_pnl = total_value - total_cost
+    total_return = total_pnl / total_cost if total_cost else 0
+
+    summary = {
+        "quote_date": quote_date,
+        "quote_time": quote_time,
+        "total_cost": total_cost,
+        "total_value": total_value,
+        "total_pnl": total_pnl,
+        "total_return": total_return,
+        "daily_pnl": None,
+        "daily_return": None,
+        "previous_date": None,
+        "previous_total_value": None,
+    }
+
+    if previous_snapshot:
+        previous_total_value = float(previous_snapshot["total_value"])
+
+        daily_pnl = total_value - previous_total_value
+        daily_return = daily_pnl / previous_total_value if previous_total_value else 0
+
+        summary["daily_pnl"] = daily_pnl
+        summary["daily_return"] = daily_return
+        summary["previous_date"] = previous_snapshot["date"]
+        summary["previous_total_value"] = previous_total_value
+
+    return summary

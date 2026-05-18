@@ -4,10 +4,11 @@ import sys
 import pandas as pd
 from dotenv import load_dotenv
 
-from calculator import calculate_positions
+from calculator import calculate_positions, calculate_summary
 from market_data import fetch_a_share_quotes
 from notifier import send_bark
 from report import build_report
+from storage import get_previous_snapshot, save_snapshot
 
 
 def load_portfolio(path: str = "portfolio.csv") -> pd.DataFrame:
@@ -43,7 +44,11 @@ def main():
     quotes_df = fetch_a_share_quotes(symbols)
     positions_df = calculate_positions(portfolio_df, quotes_df)
 
-    report = build_report(positions_df)
+    quote_date = positions_df["quote_date"].iloc[0]
+    previous_snapshot = get_previous_snapshot(quote_date)
+
+    summary = calculate_summary(positions_df, previous_snapshot)
+    report = build_report(positions_df, summary)
 
     print(report)
 
@@ -55,7 +60,10 @@ def main():
         group=bark_group,
     )
 
+    save_snapshot(summary)
+
     print("Bark 推送成功")
+    print("每日快照保存成功")
 
 
 if __name__ == "__main__":
