@@ -44,6 +44,7 @@ def calculate_positions(
 def calculate_summary(
     positions_df: pd.DataFrame,
     previous_snapshot: dict | None = None,
+    today_trade_cash_flow: float = 0.0,
 ) -> dict:
     quote_date = positions_df["quote_date"].iloc[0]
     quote_time = positions_df["quote_time"].iloc[0]
@@ -60,6 +61,7 @@ def calculate_summary(
         "total_value": total_value,
         "total_pnl": total_pnl,
         "total_return": total_return,
+        "today_trade_cash_flow": today_trade_cash_flow,
         "daily_pnl": None,
         "daily_return": None,
         "previous_date": None,
@@ -69,7 +71,7 @@ def calculate_summary(
     if previous_snapshot:
         previous_total_value = float(previous_snapshot["total_value"])
 
-        daily_pnl = total_value - previous_total_value
+        daily_pnl = total_value - previous_total_value - today_trade_cash_flow
         daily_return = daily_pnl / previous_total_value if previous_total_value else 0
 
         summary["daily_pnl"] = daily_pnl

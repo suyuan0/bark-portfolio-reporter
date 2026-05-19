@@ -3,3 +3,4 @@ pandas
 requests
 pyyaml
 python-dotenv
+exchange_calendars

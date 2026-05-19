@@ -1,6 +1,13 @@
 .env
+portfolio.csv
+trades.csv
+trade_input.csv
+
+logs/*
+data/*
+!logs/.gitkeep
+!data/.gitkeep
+
 __pycache__/
 *.pyc
-data/
-logs/
 .DS_Store

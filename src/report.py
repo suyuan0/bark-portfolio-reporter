@@ -17,6 +17,14 @@ def percent(value: float, show_sign: bool = False) -> str:
     return f"{value * 100:.2f}%"
 
 
+def trade_flow_text(value: float) -> str:
+    if value > 0:
+        return f"净买入 {money(value)}"
+    if value < 0:
+        return f"净卖出 {money(abs(value))}"
+    return "无交易"
+
+
 def build_report(
     positions_df: pd.DataFrame,
     summary: dict,
@@ -47,6 +55,8 @@ def build_report(
 
     lines.extend(
         [
+            f"今日交易：{trade_flow_text(summary['today_trade_cash_flow'])}",
+            "",
             f"持仓成本：{money(summary['total_cost'])}",
             f"当前市值：{money(summary['total_value'])}",
             f"累计盈亏：{money(summary['total_pnl'], show_sign=True)}",

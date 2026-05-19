@@ -53,6 +53,9 @@ def save_snapshot(summary: dict):
         "total_value": summary["total_value"],
         "total_pnl": summary["total_pnl"],
         "total_return": summary["total_return"],
+        "today_trade_cash_flow": summary["today_trade_cash_flow"],
+        "daily_pnl": summary["daily_pnl"],
+        "daily_return": summary["daily_return"],
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
 
