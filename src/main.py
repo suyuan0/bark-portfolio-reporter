@@ -9,7 +9,7 @@ from market_data import fetch_a_share_quotes
 from notifier import send_bark
 from report import build_report
 from storage import get_previous_snapshot, save_snapshot
-from trades import calculate_trade_cash_flow, get_today_trades
+from trades import calculate_trade_cash_flow, get_today_trades, process_trade_input_until
 from market_calendar import get_today_shanghai_date, is_a_share_trading_day
 
 
@@ -48,6 +48,11 @@ def main():
     if not is_trading_day:
         print(f"{today} 不是 A 股交易日：{reason}，跳过运行")
         return
+    
+    processed_count = process_trade_input_until(today)
+
+    if processed_count > 0:
+        print(f"已自动处理 trade_input.csv 中的 {processed_count} 条交易，并更新 portfolio.csv")
 
     portfolio_df = load_portfolio("portfolio.csv")
     symbols = portfolio_df["symbol"].tolist()
