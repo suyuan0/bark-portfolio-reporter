@@ -52,7 +52,7 @@ def main():
     processed_count = process_trade_input_until(today)
 
     if processed_count > 0:
-        print(f"已自动处理 trade_input.csv 中的 {processed_count} 条交易，并更新 portfolio.csv")
+        print(f"已检查 trade_input.csv 中的 {processed_count} 条待处理交易")
 
     portfolio_df = load_portfolio("portfolio.csv")
     symbols = portfolio_df["symbol"].tolist()

@@ -255,14 +255,57 @@ def trade_already_exists(trades_df: pd.DataFrame, row: pd.Series) -> bool:
 
     return not matched.empty
 
+def trade_already_exists(trades_df: pd.DataFrame, row: pd.Series) -> bool:
+    """
+    判断 trades.csv 中是否已经存在同一笔交易。
+
+    判断标准：
+    date + symbol + side + quantity + price
+
+    fee 和 note 不参与判断，因为同一笔交易可能后来补了手续费或改了备注。
+    """
+    if trades_df.empty:
+        return False
+
+    symbol = str(row["symbol"]).zfill(6)
+    side = str(row["side"]).lower().strip()
+    quantity = float(row["quantity"])
+    price = float(row["price"])
+    trade_date = str(row["date"]).strip()
+
+    df = trades_df.copy()
+
+    df["symbol"] = df["symbol"].astype(str).str.zfill(6)
+    df["side"] = df["side"].astype(str).str.lower().str.strip()
+    df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce")
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+
+    matched = df[
+        (df["date"].astype(str).str.strip() == trade_date)
+        & (df["symbol"] == symbol)
+        & (df["side"] == side)
+        & ((df["quantity"] - quantity).abs() < 1e-9)
+        & ((df["price"] - price).abs() < 1e-9)
+    ]
+
+    return not matched.empty
+
 def append_trade_to_history(row: pd.Series) -> bool:
+    """
+    把交易追加到 trades.csv。
+
+    如果同一笔交易已经存在，则跳过追加。
+    返回：
+    True  = 已追加
+    False = 已存在，未追加
+    """
     trades_df = load_trades(TRADES_FILE)
 
     if trade_already_exists(trades_df, row):
         print(
-            f"交易已存在，跳过追加："
-            f"{row['date']} {row['symbol']} {row['side']} "
-            f"{row['quantity']} @ {row['price']}"
+            "交易已存在，跳过追加到 trades.csv："
+            f"{row['date']} {str(row['symbol']).zfill(6)} "
+            f"{row['side']} {row['quantity']} @ {row['price']}"
         )
         return False
 
@@ -390,6 +433,20 @@ def process_trade_input_until(trade_date: str) -> int:
     pending_df = pending_df.sort_values(["date", "symbol"])
 
     for idx, row in pending_df.iterrows():
+        trades_df = load_trades(TRADES_FILE)
+
+        if trade_already_exists(trades_df, row):
+            print(
+                "交易已存在，跳过更新 portfolio.csv："
+                f"{row['date']} {str(row['symbol']).zfill(6)} "
+                f"{row['side']} {row['quantity']} @ {row['price']}"
+            )
+
+            input_df.loc[idx, "processed"] = "yes"
+            input_df.loc[idx, "fee"] = float(row["fee"])
+            processed_count += 1
+            continue
+
         portfolio = apply_trade_to_portfolio(portfolio, row)
         append_trade_to_history(row)
 
