@@ -2,16 +2,35 @@
 
 一个用于个人投资组合收益日报的 Python 小工具。
 
-程序会在 A 股收盘后自动获取持仓行情，计算今日盈亏、累计盈亏，并通过 Bark 推送到 iPhone。
+程序会在 A 股收盘后自动判断是否交易日，根据 `trades.csv` 重建当前持仓，获取行情，计算今日盈亏和累计盈亏，并通过 Bark 推送到 iPhone。
+
+## 核心流程
+
+```text
+trades.csv
+    ↓
+自动重建 portfolio.csv
+    ↓
+获取新浪行情
+    ↓
+计算收益
+    ↓
+保存每日快照
+    ↓
+Bark 推送收益日报
+```
+
+推荐把 `trades.csv` 作为交易总账来维护。  
+`portfolio.csv` 是程序根据交易总账自动生成的当前持仓文件，一般不需要手动修改。
 
 ## 功能
 
-- 读取本地 `portfolio.csv` 持仓文件
+- 根据 `trades.csv` 自动重建 `portfolio.csv`
 - 从新浪行情接口获取 A 股 / ETF 实时价格
 - 自动判断 A 股交易日，节假日不推送
 - 支持每日资产快照
-- 支持根据 `trades.csv` 修正加仓 / 减仓后的今日盈亏
-- 支持 `trade_input.csv` 自动处理交易记录
+- 支持根据交易流水修正加仓 / 减仓后的今日盈亏
+- 支持 `trade_input.csv` 自动处理待处理交易，可选
 - 支持自动估算手续费
 - 通过 Bark 推送收益日报
 - 支持 cron 定时运行
@@ -21,13 +40,13 @@
 程序目前支持：
 
 - A 股 ETF / 股票
-- 手动维护或自动更新持仓 CSV
 - Bark 推送
 - A 股交易日识别
 - 今日盈亏计算
 - 累计浮盈浮亏计算
 - 交易流水修正收益
 - 自动估算手续费，默认万 2.5
+- 根据交易流水自动生成当前持仓
 
 暂不支持：
 
@@ -132,7 +151,73 @@ COMMISSION_RATE=0.00025
 
 不要把 `.env` 提交到 Git。
 
-## 持仓文件
+## 推荐使用方式
+
+推荐只维护 `trades.csv`。
+
+每天程序运行时会：
+
+1. 读取 `trades.csv`
+2. 按交易日期从早到晚重建当前持仓
+3. 自动生成 / 覆盖 `portfolio.csv`
+4. 获取行情
+5. 计算收益
+6. 发送 Bark 推送
+
+因此：
+
+```text
+trades.csv      手动维护，作为交易总账
+portfolio.csv   程序自动生成，一般不要手动改
+```
+
+## 交易总账：trades.csv
+
+真实交易总账文件为：
+
+```text
+trades.csv
+```
+
+格式：
+
+```csv
+date,symbol,side,quantity,price,fee,note
+2026-05-19,510300,buy,300,3.820,,示例加仓
+2026-05-19,588000,buy,500,0.960,,示例建仓
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `date` | 交易日期，格式 `YYYY-MM-DD` |
+| `symbol` | 证券代码 |
+| `side` | 交易方向，`buy` 或 `sell` |
+| `quantity` | 成交数量 |
+| `price` | 成交价格 |
+| `fee` | 手续费，可留空 |
+| `note` | 备注 |
+
+`fee` 可以留空。留空时，程序会根据 `.env` 中的 `COMMISSION_RATE` 自动估算手续费。
+
+### 买入示例
+
+```csv
+date,symbol,side,quantity,price,fee,note
+2026-05-19,510300,buy,300,3.820,,加仓
+```
+
+### 卖出示例
+
+```csv
+date,symbol,side,quantity,price,fee,note
+2026-05-20,510300,sell,100,3.900,,减仓
+```
+
+卖出时，程序会减少持仓数量。使用移动加权成本法时，卖出不会改变剩余持仓的成本价。
+
+## 当前持仓：portfolio.csv
 
 真实持仓文件为：
 
@@ -140,12 +225,14 @@ COMMISSION_RATE=0.00025
 portfolio.csv
 ```
 
-格式：
+它由程序根据 `trades.csv` 自动生成，不建议手动编辑。
+
+自动生成示例：
 
 ```csv
 symbol,name,quantity,cost_price
-510300,沪深300ETF示例,1000,3.800
-588000,科创50ETF示例,2000,0.950
+510300,沪深300ETF,300.0,3.820
+588000,科创50ETF,500.0,0.960
 ```
 
 字段说明：
@@ -157,41 +244,13 @@ symbol,name,quantity,cost_price
 | `quantity` | 当前持仓数量 |
 | `cost_price` | 当前加权成本价 |
 
+如果交易总账中没有名称，程序会先用代码生成持仓，随后通过新浪行情返回的名称自动补全 `portfolio.csv` 中的 `name`。
+
 `cost_price` 建议保留 3 位小数。
 
-## 交易记录文件
+## 可选：待处理交易 trade_input.csv
 
-历史交易文件为：
-
-```text
-trades.csv
-```
-
-格式：
-
-```csv
-date,symbol,side,quantity,price,fee,note
-2026-05-19,510300,buy,300,3.820,0.29,示例加仓
-2026-05-19,588000,buy,500,0.960,0.12,示例建仓
-```
-
-字段说明：
-
-| 字段 | 说明 |
-|---|---|
-| `date` | 交易日期 |
-| `symbol` | 证券代码 |
-| `side` | 交易方向，`buy` 或 `sell` |
-| `quantity` | 成交数量 |
-| `price` | 成交价格 |
-| `fee` | 手续费 |
-| `note` | 备注 |
-
-`trades.csv` 用于计算今日净买入 / 净卖出，从而修正今日盈亏。
-
-## 待处理交易文件
-
-如果启用了自动处理交易功能，可以维护：
+如果不想直接编辑 `trades.csv`，也可以维护：
 
 ```text
 trade_input.csv
@@ -218,13 +277,13 @@ date,symbol,name,side,quantity,price,fee,note,processed
 | `note` | 备注 |
 | `processed` | 是否已处理，新交易填 `no` |
 
-`fee` 可以留空，程序会按 `.env` 中的 `COMMISSION_RATE` 自动估算。
-
 程序处理后会：
 
-1. 自动更新 `portfolio.csv`
-2. 自动追加到 `trades.csv`
+1. 自动追加到 `trades.csv`
+2. 自动更新 / 重建 `portfolio.csv`
 3. 把 `trade_input.csv` 中对应行的 `processed` 改成 `yes`
+
+如果同一笔交易已经存在于 `trades.csv`，程序会跳过重复追加，避免重复更新持仓。
 
 ## 手续费规则
 
@@ -258,7 +317,16 @@ date,symbol,name,side,quantity,price,fee,note,processed
 0.29 元
 ```
 
+如果你知道实际手续费，也可以在 CSV 中手动填写实际金额。  
+如果不知道，留空即可。
+
 ## 收益计算逻辑
+
+### 持仓成本
+
+```text
+持仓成本 = 当前持仓数量 × 当前加权成本价
+```
 
 ### 累计盈亏
 
@@ -448,7 +516,7 @@ __pycache__/
 当前版本：
 
 ```text
-v0.4
+v0.5
 ```
 
 已完成：
@@ -457,9 +525,12 @@ v0.4
 - 新浪行情
 - 每日快照
 - A 股交易日判断
+- 根据 `trades.csv` 自动重建 `portfolio.csv`
 - 加仓 / 减仓修正今日盈亏
 - 自动估算手续费
 - 自动处理交易输入 CSV
+- 重复交易保护
+- 自动补全持仓名称
 
 后续计划：
 

@@ -151,8 +151,28 @@ def load_trades(path: str | Path = TRADES_FILE) -> pd.DataFrame:
     df["side"] = df["side"].astype(str).str.strip().str.lower()
     df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce")
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
-    df["fee"] = pd.to_numeric(df["fee"], errors="coerce").fillna(0)
     df["note"] = df["note"].fillna("").astype(str)
+
+    if df["quantity"].isna().any():
+        raise ValueError("trades.csv 中存在无法识别的 quantity")
+
+    if df["price"].isna().any():
+        raise ValueError("trades.csv 中存在无法识别的 price")
+
+    invalid_side = df[~df["side"].isin(["buy", "sell"])]
+    if not invalid_side.empty:
+        raise ValueError(
+            f"trades.csv 中 side 只能是 buy 或 sell，错误行：{invalid_side.to_dict('records')}"
+        )
+
+    df["fee"] = df.apply(
+        lambda row: parse_fee(
+            row.get("fee", ""),
+            float(row["quantity"]),
+            float(row["price"]),
+        ),
+        axis=1,
+    )
 
     return df
 
@@ -348,12 +368,15 @@ def apply_trade_to_portfolio(portfolio: pd.DataFrame, row: pd.Series) -> pd.Data
         if side == "sell":
             raise ValueError(f"portfolio.csv 中没有 {symbol}，无法卖出")
 
-        if not name or name.lower() == "nan":
-            raise ValueError(f"新增持仓 {symbol} 时，trade_input.csv 的 name 必须填写")
-
         old_quantity = 0.0
         old_cost_price = 0.0
-        display_name = name
+
+        # 如果 trades.csv 里没有 name，就先用代码当名称
+        # 后面 calculator.py 会用行情返回的 quote_name 替换展示名称
+        if not name or name.lower() == "nan":
+            display_name = symbol
+        else:
+            display_name = name
     else:
         idx = matched.index[0]
         old_quantity = float(portfolio.loc[idx, "quantity"])
@@ -471,6 +494,41 @@ def get_today_trades(
 
     return df[df["date"] == trade_date].copy()
 
+def rebuild_portfolio_from_trades(trade_date: str) -> int:
+    """
+    根据 trades.csv 从零重建 portfolio.csv。
+
+    规则：
+    - 只处理 date <= trade_date 的交易
+    - buy：增加数量，并重新计算加权成本
+    - sell：减少数量，剩余持仓成本价不变
+    - fee 留空时自动按 COMMISSION_RATE 计算
+    """
+    trades_df = load_trades(TRADES_FILE)
+
+    if trades_df.empty:
+        save_portfolio(empty_portfolio_df(), PORTFOLIO_FILE)
+        return 0
+
+    trades_df = trades_df[
+        (trades_df["date"] != "")
+        & (trades_df["date"] <= trade_date)
+    ].copy()
+
+    if trades_df.empty:
+        save_portfolio(empty_portfolio_df(), PORTFOLIO_FILE)
+        return 0
+
+    trades_df = trades_df.sort_values(["date", "symbol", "side"]).reset_index(drop=True)
+
+    portfolio = empty_portfolio_df()
+
+    for _, row in trades_df.iterrows():
+        portfolio = apply_trade_to_portfolio(portfolio, row)
+
+    save_portfolio(portfolio, PORTFOLIO_FILE)
+
+    return len(trades_df)
 
 def calculate_trade_cash_flow(trades_df: pd.DataFrame) -> float:
     """

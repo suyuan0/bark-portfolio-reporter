@@ -29,6 +29,16 @@ def calculate_positions(
 
     df = portfolio_df.merge(quotes_df, on="symbol", how="left")
 
+    if "quote_name" in df.columns:
+        df["name"] = df["name"].fillna("").astype(str).str.strip()
+
+        df["name"] = df.apply(
+            lambda row: row["quote_name"]
+            if row["name"] in ["", "nan", row["symbol"]]
+            else row["name"],
+            axis=1,
+        )
+
     if df["price"].isna().any():
         missing = df[df["price"].isna()]["symbol"].tolist()
         raise ValueError(f"没有获取到行情的代码：{missing}")
