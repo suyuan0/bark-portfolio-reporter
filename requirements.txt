@@ -4,3 +4,4 @@ requests
 pyyaml
 python-dotenv
 exchange_calendars
+streamlit
