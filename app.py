@@ -21,6 +21,28 @@ TRADE_INPUT_FILE = PROJECT_ROOT / "trade_input.csv"
 SNAPSHOT_FILE = PROJECT_ROOT / "data" / "snapshots.csv"
 LOG_FILE = PROJECT_ROOT / "logs" / "app.log"
 
+COLUMN_LABELS = {
+    "date": "日期",
+    "symbol": "代码",
+    "name": "名称",
+    "side": "方向",
+    "quantity": "数量",
+    "price": "价格",
+    "fee": "手续费",
+    "note": "备注",
+    "processed": "是否已处理",
+    "cost_price": "成本价",
+    "quote_time": "行情时间",
+    "total_cost": "持仓成本",
+    "total_value": "当前市值",
+    "total_pnl": "累计盈亏",
+    "total_return": "累计收益率",
+    "today_trade_cash_flow": "今日交易净投入",
+    "daily_pnl": "今日盈亏",
+    "daily_return": "今日收益率",
+    "created_at": "创建时间",
+}
+
 
 st.set_page_config(
     page_title="Bark 收益日报",
@@ -28,6 +50,42 @@ st.set_page_config(
     layout="wide",
 )
 
+def get_column_config(columns):
+    config = {}
+
+    for col in columns:
+        label = COLUMN_LABELS.get(col, col)
+
+        if col == "side":
+            config[col] = st.column_config.SelectboxColumn(
+                label,
+                options=["buy", "sell"],
+                help="buy=买入，sell=卖出",
+            )
+        elif col == "processed":
+            config[col] = st.column_config.SelectboxColumn(
+                label,
+                options=["no", "yes"],
+            )
+        elif col in ["quantity", "price", "cost_price"]:
+            config[col] = st.column_config.NumberColumn(
+                label,
+                min_value=0.0,
+                format="%.3f" if col in ["price", "cost_price"] else "%.0f",
+            )
+        elif col == "fee":
+            config[col] = st.column_config.TextColumn(
+                label,
+                help="手续费，可留空，程序会自动估算",
+            )
+        else:
+            config[col] = st.column_config.TextColumn(label)
+
+    return config
+
+def display_df_with_chinese_columns(df: pd.DataFrame):
+    display_df = df.rename(columns=COLUMN_LABELS)
+    st.dataframe(display_df, width="stretch")
 
 def ensure_file(path: Path, columns: list[str]):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +107,36 @@ def read_csv_safe(path: Path, columns: list[str] | None = None) -> pd.DataFrame:
 def save_csv(path: Path, df: pd.DataFrame):
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
+
+def sort_trades_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    expected_columns = ["date", "symbol", "side", "quantity", "price", "fee", "note"]
+
+    for col in expected_columns:
+        if col not in df.columns:
+            df[col] = ""
+
+    df = df[expected_columns]
+
+    df["date"] = df["date"].fillna("").astype(str).str.strip()
+    df["symbol"] = df["symbol"].fillna("").astype(str).str.strip().str.zfill(6)
+    df["side"] = df["side"].fillna("").astype(str).str.strip()
+    df["note"] = df["note"].fillna("").astype(str)
+
+    df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce")
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+
+    # fee 允许为空，所以不要强制转数字
+    df["fee"] = df["fee"].fillna("").astype(str).str.strip()
+
+    df = df.sort_values(
+        by=["date", "symbol", "side", "price"],
+        ascending=[True, True, True, True],
+        na_position="last",
+    )
+
+    return df
 
 
 def get_file_mtime(path: Path) -> str:
@@ -175,7 +263,7 @@ def render_overview():
     if portfolio_df.empty:
         st.info("暂无持仓。请先维护 trades.csv，然后重建 portfolio.csv。")
     else:
-        st.dataframe(portfolio_df, width="stretch")
+        display_df_with_chinese_columns(portfolio_df)
 
     st.caption(f"portfolio.csv 更新时间：{get_file_mtime(PORTFOLIO_FILE)}")
     st.caption(f"trades.csv 更新时间：{get_file_mtime(TRADES_FILE)}")
@@ -198,54 +286,28 @@ def render_trades_editor():
         TRADES_FILE,
         columns=["date", "symbol", "side", "quantity", "price", "fee", "note"],
     )
-    df = normalize_editable_text_columns(df, ["fee", "note"])
 
+    df = sort_trades_df(df)
     df["fee"] = df["fee"].fillna("").astype(str)
     df["note"] = df["note"].fillna("").astype(str)
+
+    df = normalize_editable_text_columns(df, ["fee", "note"])
 
     edited_df = st.data_editor(
         df,
         width="stretch",
         num_rows="dynamic",
-        column_config={
-            "date": st.column_config.TextColumn(
-                "date",
-                help="交易日期，例如 2026-05-19",
-            ),
-            "symbol": st.column_config.TextColumn(
-                "symbol",
-                help="证券代码，例如 510300",
-            ),
-            "side": st.column_config.SelectboxColumn(
-                "side",
-                options=["buy", "sell"],
-                help="buy=买入，sell=卖出",
-            ),
-            "quantity": st.column_config.NumberColumn(
-                "quantity",
-                min_value=0.0,
-                step=100.0,
-            ),
-            "price": st.column_config.NumberColumn(
-                "price",
-                min_value=0.0,
-                step=0.001,
-                format="%.3f",
-            ),
-            "fee": st.column_config.TextColumn(
-                "fee",
-                help="手续费，可留空，程序会自动估算",
-            ),
-            "note": st.column_config.TextColumn("note"),
-        },
+        column_config=get_column_config(df.columns),
     )
 
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("💾 保存 trades.csv", type="primary"):
-            save_csv(TRADES_FILE, edited_df)
-            st.success("trades.csv 已保存")
+            sorted_df = sort_trades_df(edited_df)
+            save_csv(TRADES_FILE, sorted_df)
+            st.success("trades.csv 已保存，并已自动排序")
+            st.rerun()
 
     with col2:
         if st.button("🔄 根据 trades.csv 重建 portfolio.csv"):
@@ -303,30 +365,7 @@ def render_trade_input_editor():
         df,
         width="stretch",
         num_rows="dynamic",
-        column_config={
-            "date": st.column_config.TextColumn("date"),
-            "symbol": st.column_config.TextColumn("symbol"),
-            "name": st.column_config.TextColumn("name"),
-            "side": st.column_config.SelectboxColumn(
-                "side",
-                options=["buy", "sell"],
-            ),
-            "quantity": st.column_config.NumberColumn("quantity", min_value=0.0),
-            "price": st.column_config.NumberColumn(
-                "price",
-                min_value=0.0,
-                format="%.3f",
-            ),
-            "fee": st.column_config.TextColumn(
-                "fee",
-                help="可留空，程序会自动估算",
-            ),
-            "note": st.column_config.TextColumn("note"),
-            "processed": st.column_config.SelectboxColumn(
-                "processed",
-                options=["no", "yes"],
-            ),
-        },
+        column_config=get_column_config(df.columns),
     )
 
     if st.button("💾 保存 trade_input.csv", type="primary"):
