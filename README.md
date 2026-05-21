@@ -4,6 +4,8 @@
 
 程序会在 A 股收盘后自动判断是否交易日，根据 `trades.csv` 重建当前持仓，获取行情，计算今日盈亏和累计盈亏，并通过 Bark 推送到 iPhone。
 
+项目还提供一个 Streamlit GUI，用于查看持仓、编辑交易记录、查看快照、手动运行日报和查看日志。
+
 ## 核心流程
 
 ```text
@@ -33,7 +35,9 @@ Bark 推送收益日报
 - 支持 `trade_input.csv` 自动处理待处理交易，可选
 - 支持自动估算手续费
 - 通过 Bark 推送收益日报
-- 支持 cron 定时运行
+- 支持 cron 定时运行收益日报
+- 支持 Streamlit GUI
+- 支持 systemd 常驻运行 GUI
 
 ## 当前能力
 
@@ -47,6 +51,7 @@ Bark 推送收益日报
 - 交易流水修正收益
 - 自动估算手续费，默认万 2.5
 - 根据交易流水自动生成当前持仓
+- 浏览器 GUI 查看和编辑数据
 
 暂不支持：
 
@@ -56,18 +61,22 @@ Bark 推送收益日报
 - 港股 / 美股完整交易日历
 - 现金余额管理
 - 分红、拆股、转托管等复杂情况
+- GUI 登录鉴权
 
 ## 项目结构
 
 ```text
 bark-portfolio-reporter/
 ├── README.md
+├── app.py
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
 ├── portfolio.example.csv
 ├── trades.example.csv
 ├── trade_input.example.csv
+├── .streamlit/
+│   └── config.toml
 ├── data/
 │   └── .gitkeep
 ├── logs/
@@ -96,6 +105,7 @@ logs/app.log
 
 这些文件包含个人持仓、交易记录、收益快照或运行日志，不建议提交到 Git。
 
+
 ## 安装
 
 ### 1. 创建 Conda 环境
@@ -118,6 +128,7 @@ pandas
 requests
 python-dotenv
 exchange_calendars
+streamlit
 ```
 
 ## 配置
@@ -170,6 +181,7 @@ COMMISSION_RATE=0.00025
 trades.csv      手动维护，作为交易总账
 portfolio.csv   程序自动生成，一般不要手动改
 ```
+
 
 ## 交易总账：trades.csv
 
@@ -248,6 +260,7 @@ symbol,name,quantity,cost_price
 
 `cost_price` 建议保留 3 位小数。
 
+
 ## 可选：待处理交易 trade_input.csv
 
 如果不想直接编辑 `trades.csv`，也可以维护：
@@ -320,6 +333,13 @@ date,symbol,name,side,quantity,price,fee,note,processed
 如果你知道实际手续费，也可以在 CSV 中手动填写实际金额。  
 如果不知道，留空即可。
 
+规则：
+
+```text
+fee 为空 / auto / -- / nan / none → 自动计算
+fee 填数字                       → 使用填写的数字
+```
+
 ## 收益计算逻辑
 
 ### 持仓成本
@@ -362,7 +382,8 @@ date,symbol,name,side,quantity,price,fee,note,processed
 
 这样加仓不会被误认为盈利，减仓也不会被误认为亏损。
 
-## 运行
+
+## 运行收益日报
 
 手动运行：
 
@@ -380,7 +401,7 @@ python src/main.py
 
 不会抓行情，也不会推送 Bark。
 
-## 定时任务
+## 定时任务：cron 自动推送收益日报
 
 使用 cron 每个工作日 15:30 自动执行：
 
@@ -406,11 +427,150 @@ pwd
 which python
 ```
 
-查看日志：
+查看 cron 日志：
 
 ```bash
 tail -f logs/app.log
 ```
+
+## Streamlit GUI
+
+项目提供浏览器 GUI：
+
+```bash
+streamlit run app.py
+```
+
+如果只允许本机访问：
+
+```bash
+streamlit run app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+如果需要局域网访问，可以绑定局域网 IP：
+
+```bash
+streamlit run app.py --server.address 192.168.x.x --server.port 8501
+```
+
+访问地址示例：
+
+```text
+http://192.168.x.x:8501
+```
+
+GUI 功能包括：
+
+- 总览
+- 编辑 `trades.csv`
+- 查看 `portfolio.csv`
+- 查看 `snapshots.csv`
+- 手动运行收益日报
+- 查看日志
+
+注意：Streamlit 默认没有登录鉴权，不建议直接暴露到公网。
+
+## Streamlit 配置
+
+可以创建：
+
+```text
+.streamlit/config.toml
+```
+
+示例：
+
+```toml
+[server]
+address = "127.0.0.1"
+port = 8501
+
+[browser]
+gatherUsageStats = false
+```
+
+如果只在局域网使用，可以把 `address` 改成你的局域网 IP，例如：
+
+```toml
+[server]
+address = "192.168.x.x"
+port = 8501
+
+[browser]
+gatherUsageStats = false
+```
+
+
+## systemd 常驻运行 GUI
+
+如果希望 GUI 一直运行，并且开机自启，推荐使用 systemd。
+
+### 1. 创建服务文件
+
+```bash
+sudo nano /etc/systemd/system/bark-portfolio-gui.service
+```
+
+示例内容，注意把路径和用户名改成你自己的：
+
+```ini
+[Unit]
+Description=Bark Portfolio Reporter Streamlit GUI
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/bark-portfolio-reporter
+ExecStart=/path/to/conda/envs/bark-portfolio-reporter/bin/streamlit run app.py --server.address 192.168.x.x --server.port 8501
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 2. 启动服务
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start bark-portfolio-gui
+```
+
+### 3. 设置开机自启
+
+```bash
+sudo systemctl enable bark-portfolio-gui
+```
+
+### 4. 查看状态
+
+```bash
+sudo systemctl status bark-portfolio-gui
+```
+
+正常时应看到：
+
+```text
+Active: active (running)
+```
+
+### 5. 查看 GUI 日志
+
+```bash
+journalctl -u bark-portfolio-gui -f
+```
+
+### 6. 重启 / 停止 GUI
+
+```bash
+sudo systemctl restart bark-portfolio-gui
+sudo systemctl stop bark-portfolio-gui
+sudo systemctl start bark-portfolio-gui
+```
+
+注意：如果已经用 systemd 启动 GUI，不要再手动执行 `streamlit run app.py`，否则可能出现端口被占用。
+
 
 ## 交易日识别
 
@@ -476,6 +636,7 @@ data/*
 __pycache__/
 *.pyc
 .DS_Store
+.streamlit/secrets.toml
 ```
 
 ## 示例推送内容
@@ -516,7 +677,7 @@ __pycache__/
 当前版本：
 
 ```text
-v0.5
+v0.6
 ```
 
 已完成：
@@ -531,6 +692,8 @@ v0.5
 - 自动处理交易输入 CSV
 - 重复交易保护
 - 自动补全持仓名称
+- Streamlit GUI
+- systemd 常驻运行 GUI
 
 后续计划：
 
@@ -539,3 +702,4 @@ v0.5
 - 增加收益曲线
 - 支持多账户
 - 支持更多市场
+- GUI 登录鉴权
