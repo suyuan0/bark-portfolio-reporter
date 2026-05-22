@@ -9,7 +9,7 @@ from market_calendar import get_today_shanghai_date, is_a_share_trading_day
 from market_data import fetch_a_share_quotes
 from notifier import send_bark
 from report import build_report
-from storage import get_previous_snapshot, save_snapshot
+from storage import get_previous_snapshot, save_position_snapshot, save_snapshot
 from trades import (
     calculate_trade_cash_flow,
     get_today_trades,
@@ -162,6 +162,7 @@ def main():
         positions_df=positions_df,
         previous_snapshot=previous_snapshot,
         today_trade_cash_flow=today_trade_cash_flow,
+        today_trade_count=len(today_trades),
     )
 
     report = build_report(positions_df, summary)
@@ -177,6 +178,7 @@ def main():
     )
 
     save_snapshot(summary)
+    save_position_snapshot(positions_df)
 
     print("Bark 推送成功")
     print("每日快照保存成功")

@@ -14,6 +14,16 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from cron_manager import (
+    CronConfig,
+    build_cron_block,
+    default_cron_config,
+    parse_project_cron_block,
+    read_user_crontab,
+    replace_project_cron_block,
+    write_user_crontab,
+)
+
 
 PORTFOLIO_FILE = PROJECT_ROOT / "portfolio.csv"
 TRADES_FILE = PROJECT_ROOT / "trades.csv"
@@ -447,6 +457,120 @@ def render_manual_run():
                 st.error(f"运行失败：{exc}")
 
 
+def render_cron_settings():
+    st.header("⏰ 定时任务")
+
+    st.info(
+        "这里只管理本项目自己的 crontab 区块，不会编辑其他定时任务。"
+        "页面必须用同一个 Linux 用户运行，才能修改该用户的 crontab。"
+    )
+
+    try:
+        current_crontab = read_user_crontab()
+    except Exception as exc:
+        st.error(f"读取 crontab 失败：{exc}")
+        return
+
+    existing_config = parse_project_cron_block(current_crontab)
+    config = existing_config or default_cron_config(PROJECT_ROOT, sys.executable)
+
+    if existing_config is None:
+        st.caption("当前 crontab 里还没有本项目的定时任务区块，将按默认值创建。")
+    else:
+        st.caption("已读取到本项目的定时任务配置。")
+
+    enabled = st.checkbox("启用定时运行", value=config.enabled)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        hour = st.number_input(
+            "小时",
+            min_value=0,
+            max_value=23,
+            value=int(config.hour),
+            step=1,
+        )
+
+    with col2:
+        minute = st.number_input(
+            "分钟",
+            min_value=0,
+            max_value=59,
+            value=int(config.minute),
+            step=1,
+        )
+
+    weekday_options = {
+        "周一到周五": "1-5",
+        "每天": "*",
+        "周一到周六": "1-6",
+        "自定义": config.weekdays,
+    }
+    default_weekday_label = next(
+        (
+            label
+            for label, value in weekday_options.items()
+            if value == config.weekdays and label != "自定义"
+        ),
+        "自定义",
+    )
+
+    with col3:
+        weekday_label = st.selectbox(
+            "运行日期",
+            list(weekday_options.keys()),
+            index=list(weekday_options.keys()).index(default_weekday_label),
+        )
+
+    weekdays = weekday_options[weekday_label]
+
+    if weekday_label == "自定义":
+        weekdays = st.text_input(
+            "cron 星期字段",
+            value=str(config.weekdays),
+            help="例如 1-5 表示周一到周五，* 表示每天。",
+        )
+
+    project_dir = st.text_input("项目路径", value=config.project_dir)
+    python_path = st.text_input("Python 路径", value=config.python_path)
+    script_path = st.text_input("脚本路径", value=config.script_path)
+    log_path = st.text_input("日志路径", value=config.log_path)
+
+    new_config = CronConfig(
+        enabled=enabled,
+        minute=int(minute),
+        hour=int(hour),
+        weekdays=str(weekdays).strip() or "1-5",
+        project_dir=project_dir.strip(),
+        python_path=python_path.strip(),
+        script_path=script_path.strip(),
+        log_path=log_path.strip(),
+    )
+    new_crontab = replace_project_cron_block(current_crontab, new_config)
+
+    st.subheader("将写入的本项目 cron 区块")
+    st.code(build_cron_block(new_config), language="cron")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("💾 保存定时任务", type="primary"):
+            try:
+                write_user_crontab(new_crontab)
+                st.success("定时任务已保存")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"保存 crontab 失败：{exc}")
+
+    with col2:
+        if st.button("🔄 重新读取 crontab"):
+            st.rerun()
+
+    with st.expander("查看当前 crontab"):
+        st.code(current_crontab or "当前用户没有 crontab", language="cron")
+
+
 def render_logs():
     st.header("📜 运行日志")
 
@@ -482,6 +606,7 @@ def main():
             "待处理交易",
             "当前持仓",
             "每日快照",
+            "定时任务",
             "手动运行",
             "运行日志",
         ],
@@ -497,6 +622,8 @@ def main():
         render_portfolio()
     elif page == "每日快照":
         render_snapshots()
+    elif page == "定时任务":
+        render_cron_settings()
     elif page == "手动运行":
         render_manual_run()
     elif page == "运行日志":

@@ -55,6 +55,7 @@ def calculate_summary(
     positions_df: pd.DataFrame,
     previous_snapshot: dict | None = None,
     today_trade_cash_flow: float = 0.0,
+    today_trade_count: int | None = None,
 ) -> dict:
     quote_date = positions_df["quote_date"].iloc[0]
     quote_time = positions_df["quote_time"].iloc[0]
@@ -81,7 +82,16 @@ def calculate_summary(
     if previous_snapshot:
         previous_total_value = float(previous_snapshot["total_value"])
 
-        daily_pnl = total_value - previous_total_value - today_trade_cash_flow
+        if (
+            today_trade_count == 0
+            and "change" in positions_df.columns
+            and not positions_df["change"].isna().any()
+        ):
+            daily_pnl = float((positions_df["quantity"] * positions_df["change"]).sum())
+            previous_total_value = total_value - daily_pnl
+        else:
+            daily_pnl = total_value - previous_total_value - today_trade_cash_flow
+
         daily_return = daily_pnl / previous_total_value if previous_total_value else 0
 
         summary["daily_pnl"] = daily_pnl

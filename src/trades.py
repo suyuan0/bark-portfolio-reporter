@@ -399,10 +399,17 @@ def apply_trade_to_portfolio(portfolio: pd.DataFrame, row: pd.Series) -> pd.Data
                 f"{symbol} 卖出数量不能超过当前持仓：当前 {old_quantity}，试图卖出 {quantity}"
             )
 
+        old_cost_amount = old_quantity * old_cost_price
+        sell_proceeds = quantity * price - fee
+
         new_quantity = old_quantity - quantity
 
-        # 移动加权成本法：卖出不改变剩余持仓成本价
-        new_cost_price = old_cost_price if new_quantity > 0 else 0.0
+        # 券商常见持仓成本口径：卖出成交净额冲减剩余持仓成本。
+        new_cost_price = (
+            (old_cost_amount - sell_proceeds) / new_quantity
+            if new_quantity > 0
+            else 0.0
+        )
 
     if matched.empty:
         new_row = {
@@ -412,7 +419,12 @@ def apply_trade_to_portfolio(portfolio: pd.DataFrame, row: pd.Series) -> pd.Data
             "cost_price": new_cost_price,
         }
 
-        portfolio = pd.concat([portfolio, pd.DataFrame([new_row])], ignore_index=True)
+        new_row_df = pd.DataFrame([new_row])
+        portfolio = (
+            new_row_df
+            if portfolio.empty
+            else pd.concat([portfolio, new_row_df], ignore_index=True)
+        )
     else:
         idx = matched.index[0]
         portfolio.loc[idx, "name"] = display_name
@@ -494,6 +506,21 @@ def get_today_trades(
 
     return df[df["date"] == trade_date].copy()
 
+
+def build_portfolio_from_trades_df(trades_df: pd.DataFrame) -> pd.DataFrame:
+    portfolio = empty_portfolio_df()
+
+    if trades_df.empty:
+        return portfolio
+
+    trades_df = trades_df.sort_values(["date", "symbol", "side"]).reset_index(drop=True)
+
+    for _, row in trades_df.iterrows():
+        portfolio = apply_trade_to_portfolio(portfolio, row)
+
+    return portfolio
+
+
 def rebuild_portfolio_from_trades(trade_date: str) -> int:
     """
     根据 trades.csv 从零重建 portfolio.csv。
@@ -501,7 +528,7 @@ def rebuild_portfolio_from_trades(trade_date: str) -> int:
     规则：
     - 只处理 date <= trade_date 的交易
     - buy：增加数量，并重新计算加权成本
-    - sell：减少数量，剩余持仓成本价不变
+    - sell：减少数量，并用卖出成交净额冲减剩余持仓成本
     - fee 留空时自动按 COMMISSION_RATE 计算
     """
     trades_df = load_trades(TRADES_FILE)
@@ -519,12 +546,7 @@ def rebuild_portfolio_from_trades(trade_date: str) -> int:
         save_portfolio(empty_portfolio_df(), PORTFOLIO_FILE)
         return 0
 
-    trades_df = trades_df.sort_values(["date", "symbol", "side"]).reset_index(drop=True)
-
-    portfolio = empty_portfolio_df()
-
-    for _, row in trades_df.iterrows():
-        portfolio = apply_trade_to_portfolio(portfolio, row)
+    portfolio = build_portfolio_from_trades_df(trades_df)
 
     save_portfolio(portfolio, PORTFOLIO_FILE)
 

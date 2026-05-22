@@ -227,7 +227,8 @@ date,symbol,side,quantity,price,fee,note
 2026-05-20,510300,sell,100,3.900,,减仓
 ```
 
-卖出时，程序会减少持仓数量。使用移动加权成本法时，卖出不会改变剩余持仓的成本价。
+卖出时，程序会减少持仓数量，并用卖出成交净额冲减剩余持仓成本。  
+如果卖出价低于持仓成本，剩余持仓成本价会上升；如果卖出价高于持仓成本，剩余持仓成本价会下降。
 
 ## 当前持仓：portfolio.csv
 
@@ -254,7 +255,7 @@ symbol,name,quantity,cost_price
 | `symbol` | 证券代码 |
 | `name` | 证券名称 |
 | `quantity` | 当前持仓数量 |
-| `cost_price` | 当前加权成本价 |
+| `cost_price` | 当前持仓成本价 |
 
 如果交易总账中没有名称，程序会先用代码生成持仓，随后通过新浪行情返回的名称自动补全 `portfolio.csv` 中的 `name`。
 
@@ -345,7 +346,7 @@ fee 填数字                       → 使用填写的数字
 ### 持仓成本
 
 ```text
-持仓成本 = 当前持仓数量 × 当前加权成本价
+持仓成本 = 当前持仓数量 × 当前持仓成本价
 ```
 
 ### 累计盈亏
@@ -365,6 +366,14 @@ fee 填数字                       → 使用填写的数字
 ```text
 今日盈亏 = 今日当前市值 - 上一交易日当前市值 - 今日交易净投入
 ```
+
+如果今天没有交易，程序会优先使用行情接口返回的涨跌额计算：
+
+```text
+今日盈亏 = Σ(当前持仓数量 × 今日涨跌额)
+```
+
+这样即使后来修正了历史交易记录，也不会把历史持仓变化误算成当天盈亏。
 
 ### 今日交易净投入
 
@@ -432,6 +441,18 @@ which python
 ```bash
 tail -f logs/app.log
 ```
+
+也可以在 Streamlit GUI 的“定时任务”页面管理这条任务。页面会在当前用户的
+crontab 中维护下面这个带标记的区块，只替换标记之间的内容，不会改动其他
+cron 任务：
+
+```cron
+# bark-portfolio-reporter BEGIN
+30 15 * * 1-5 cd /path/to/bark-portfolio-reporter && /path/to/conda/envs/bark-portfolio-reporter/bin/python src/main.py >> logs/app.log 2>&1
+# bark-portfolio-reporter END
+```
+
+注意：GUI 必须使用同一个 Linux 用户运行，才能修改该用户的 crontab。
 
 ## Streamlit GUI
 
